@@ -38,6 +38,7 @@ import json
 from urlparse import urlparse, parse_qs
 import urllib
 import os
+from os import system
 
 SIGNAL = ''
 global TOKENS
@@ -74,6 +75,7 @@ set client_id        - To set client_id      - REQUIRED
 set scope            - To set scope
 set client_secret    - To set client_secret  - REQUIRED
 set redirect_uri     - To set redirect_uri   - REQUIRED
+generate link        - Generate permission request link
 
 """
 
@@ -167,7 +169,6 @@ def start_server():
 			HTTPD.serve_forever()
 		except:
 			print '[!] Server is already started.'
-
 	
 def stop_server():
 	try:
@@ -230,6 +231,11 @@ while True:
 	elif SIGNAL.__contains__('set redirect_uri'):
 		redirect_uri = SIGNAL.split()[2]
 		APP_CONFIG['redirect_uri'] = redirect_uri
+	elif SIGNAL.__contains__('generate link'):
+		try:
+			print "\nhttps://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&response_mode=query&scope=%s&state=12345\n" % (str(APP_CONFIG['client_id']), urllib.quote(APP_CONFIG['redirect_uri']), urllib.quote(APP_CONFIG['scope']))
+		except:
+			pass
 	elif SIGNAL.__contains__('help'):
 		print help
 	elif not SIGNAL:
