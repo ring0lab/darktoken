@@ -282,7 +282,7 @@ while True:
 		try:
 			id = SIGNAL.split()[2]
 		except:
-			print '[!] You must specify an array id.  E.g., list userss 0'
+			print '[!] You must specify an array id.  E.g., list users 0'
 		try:
 			users = get_users(TOKENS[int(id)][1])
 			if not DEBUG['debug'] == 0:
