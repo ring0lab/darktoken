@@ -1,4 +1,4 @@
-# exclude any local autorun.cfg file
+# exclude any local sensitive files
 autorun.cfg
 key.pem
 cert.pem
