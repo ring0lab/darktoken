@@ -1,0 +1,4 @@
+# exclude any local sensitive files
+autorun.cfg
+key.pem
+cert.pem

